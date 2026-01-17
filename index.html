@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<title>Index</title>
+
+<style>
+body{
+  background:#000;
+  color:#d0d0d0;
+  font-family:monospace;
+  margin:0;
+  padding:40px
+}
+h1{color:#c0c0c0;font-weight:600}
+ul{margin-bottom:30px;padding-left:20px}
+li{color:#b8b8b8;list-style:none}
+a{color:#b8b8b8;text-decoration:none}
+a:hover{color:#e0e0e0;text-decoration:underline}
+
+/* =========================
+   TOPBAR
+   ========================= */
+#topbar{
+  position:sticky;
+  top:0;
+  z-index:50;
+  background:rgba(0,0,0,0.92);
+  border-bottom:1px solid #222;
+  margin:-40px -40px 20px -40px;
+  padding:10px 40px;
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap
+}
+.icon-btn{
+  cursor:pointer;
+  border:1px solid #333;
+  background:#000;
+  color:#cfcfcf;
+  border-radius:10px;
+  padding:8px 10px;
+  font-family:monospace;
+}
+.icon-btn:hover{border-color:#555;color:#fff}
+
+/* =========================
+   EXPLORER
+   ========================= */
+.folder{
+  cursor:pointer;
+  color:#d4af37;
+  margin-top:6px;
+  user-select:none
+}
+.folder::before{
+  content:"▶ ";
+  color:#888
+}
+.folder.open::before{
+  content:"▼ ";
+}
+.folder-children{
+  margin-left:18px;
+  display:none
+}
+.folder.open + .folder-children{
+  display:block
+}
+.file{
+  margin-left:18px
+}
+.file-type{
+  color:#777;
+  margin-left:6px
+}
+
+/* =========================
+   VIEWER
+   ========================= */
+#viewer-wrapper{
+  width:100%;
+  display:flex;
+  justify-content:center;
+  margin-top:60px
+}
+#viewer{
+  max-width:900px;
+  width:100%;
+  line-height:1.6
+}
+#viewer pre{
+  background:#000;
+  padding:10px;
+  border:1px solid #555;
+  overflow-x:auto
+}
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+</head>
+
+<body>
+
+<div id="topbar">
+  <button id="toggle-recursive" class="icon-btn">Rekursiv: OFF</button>
+  <button id="toggle-explorer" class="icon-btn">Explorer: OFF</button>
+</div>
+
+<h1>Index</h1>
+<ul id="file-list"></ul>
+
+<div id="viewer-wrapper">
+  <div id="viewer"></div>
+</div>
+
+<script>
+const owner="AntonWallin999",repo="a",branch="main";
+const allowedExtensions=[".html",".md",".markdown",".txt",".pdf",".png",".jpg",".jpeg",".gif",".svg",".zip",".csv",".json",".xml"];
+
+let recursiveMode=false;
+let explorerMode=false;
+let allFiles=[];
+
+const fileList=document.getElementById("file-list");
+const viewer=document.getElementById("viewer");
+
+document.getElementById("toggle-recursive").onclick=()=>{
+  recursiveMode=!recursiveMode;
+  document.getElementById("toggle-recursive").textContent="Rekursiv: "+(recursiveMode?"ON":"OFF");
+  loadFiles();
+};
+
+document.getElementById("toggle-explorer").onclick=()=>{
+  explorerMode=!explorerMode;
+  document.getElementById("toggle-explorer").textContent="Explorer: "+(explorerMode?"ON":"OFF");
+  render();
+};
+
+function loadFiles(){
+  allFiles=[];
+  fileList.innerHTML="";
+  recursiveMode?listRecursive(""):listRoot();
+}
+
+function listRoot(){
+  fetch(`https://api.github.com/repos/${owner}/${repo}/contents?ref=${branch}`)
+    .then(r=>r.json())
+    .then(d=>{allFiles=d;render()});
+}
+
+function listRecursive(path){
+  fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`)
+    .then(r=>r.json())
+    .then(items=>{
+      items.forEach(i=>{
+        if(i.type==="dir") listRecursive(i.path);
+        else allFiles.push(i);
+      });
+      render();
+    });
+}
+
+/* =========================
+   RENDER
+   ========================= */
+function render(){
+  fileList.innerHTML="";
+  explorerMode?renderExplorer():renderFlat();
+}
+
+function renderFlat(){
+  allFiles
+    .filter(f=>allowedExtensions.some(e=>f.name.toLowerCase().endsWith(e)))
+    .sort((a,b)=>(a.path||a.name).localeCompare(b.path||b.name,"sv"))
+    .forEach(renderFile);
+}
+
+function renderExplorer(){
+  const tree={};
+  allFiles.forEach(f=>{
+    if(!allowedExtensions.some(e=>f.name.toLowerCase().endsWith(e))) return;
+    const parts=(f.path||f.name).split("/");
+    let node=tree;
+    parts.forEach((p,i)=>{
+      node[p]=node[p]||{__files:[]};
+      if(i===parts.length-1) node.__files.push(f);
+      node=node[p];
+    });
+  });
+  renderFolder(tree,fileList);
+}
+
+function renderFolder(node,container){
+  Object.keys(node).filter(k=>k!=="__files").sort().forEach(folder=>{
+    const title=document.createElement("div");
+    title.className="folder";
+    title.textContent=folder;
+    const children=document.createElement("div");
+    children.className="folder-children";
+    title.onclick=()=>title.classList.toggle("open");
+    container.appendChild(title);
+    container.appendChild(children);
+    renderFolder(node[folder],children);
+  });
+
+  (node.__files||[])
+    .sort((a,b)=>{
+      const ea=a.name.split(".").pop();
+      const eb=b.name.split(".").pop();
+      return ea===eb?a.name.localeCompare(b.name):ea.localeCompare(eb);
+    })
+    .forEach(f=>{
+      const li=document.createElement("li");
+      li.className="file";
+      const a=document.createElement("a");
+      a.textContent=f.name;
+      if(f.name.match(/\.(md|markdown)$/i)){
+        a.href="#";
+        a.onclick=()=>{
+          fetch(f.path).then(r=>r.text()).then(t=>{
+            viewer.innerHTML=marked.parse(t);
+            MathJax.typesetPromise();
+          });
+          return false;
+        };
+      }else{
+        a.href=f.path;
+        a.target="_blank";
+      }
+      const ext=document.createElement("span");
+      ext.className="file-type";
+      ext.textContent="."+f.name.split(".").pop();
+      li.appendChild(a);
+      li.appendChild(ext);
+      container.appendChild(li);
+    });
+}
+
+function renderFile(f){
+  const li=document.createElement("li");
+  const a=document.createElement("a");
+  a.textContent=f.path||f.name;
+  a.href=f.path||f.name;
+  a.target="_blank";
+  li.appendChild(a);
+  fileList.appendChild(li);
+}
+
+loadFiles();
+</script>
+
+</body>
+</html>
